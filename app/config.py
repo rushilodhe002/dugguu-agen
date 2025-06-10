@@ -1,7 +1,7 @@
 """Configuration settings for the application."""
 
 # API Keys and Endpoints
-GEMINI_API_KEY = "AIzaSyAx7UH--JJyA-F1uZvleIKcQqzfpxKlTNw"
+GEMINI_API_KEY = "AIzaSyBXfwfRY4d7HmuDiPDnePhjKCE-hhAjDk0"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 # Base URL for the API
@@ -112,6 +112,93 @@ TOOLS = {
                     }
                 },
                 "required": ["title", "task_type", "task_details", "assigned_to", "start_date", "due_date", "tags", "client_id", "department_id", "location_id", "created_by"]
+            }
+        },
+        {
+            "name": "create_appointment",
+            "description": "Create a new appointment with a service provider.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_user_id": {
+                        "type": "string",
+                        "description": "ID of the person to meet with"
+                    },
+                    "user_availability_id": {
+                        "type": "string",
+                        "description": "ID of the availability slot"
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Date of the appointment (YYYY-MM-DD)"
+                    },
+                    "time": {
+                        "type": "string",
+                        "description": "Time of the appointment (ISO format)"
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "description": "Duration in minutes"
+                    },
+                    "appointment_agenda": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of topics to discuss"
+                    },
+                    "creator_name": {
+                        "type": "string",
+                        "description": "Name of the appointment creator"
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Additional notes about the appointment"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Reason for the appointment"
+                    },
+                    "loggedin_user_id": {
+                        "type": "string",
+                        "description": "ID of the logged-in user"
+                    },
+                    "is_virtual": {
+                        "type": "boolean",
+                        "description": "Whether the appointment is virtual",
+                        "default": True
+                    },
+                    "location_name": {
+                        "type": "string",
+                        "description": "Location name",
+                        "default": "remote"
+                    },
+                    "meeting_link": {
+                        "type": "string",
+                        "description": "Virtual meeting link (optional)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of tags",
+                        "default": ["healthcare-related"]
+                    },
+                    "client_id": {
+                        "type": "string",
+                        "description": "Client ID from service provider"
+                    },
+                    "department_id": {
+                        "type": "string",
+                        "description": "Department ID from service provider"
+                    },
+                    "location_id": {
+                        "type": "string",
+                        "description": "Location ID from service provider"
+                    },
+                    "created_by": {
+                        "type": "string",
+                        "description": "ID of the user creating the appointment"
+                    }
+                },
+                "required": ["target_user_id", "user_availability_id", "date", "time", "duration", "appointment_agenda", "creator_name", "notes", "reason"]
             }
         }
     ]

@@ -40,7 +40,7 @@ def get_user_availability(user_id_of_person: str) -> dict:
         
         # Log response for debugging
         logger.info(f"User availability response status: {response.status_code}")
-        logger.info(f"User availability response: {response.text}")
+        logger.info(f"User availability response: {response.text[:40]}")
         
         response.raise_for_status()
         return response.json()
