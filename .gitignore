@@ -1,0 +1,23 @@
+# Ignore Python virtual environment
+venv/
+VENV/
+.env/
+.env.bak/
+.venv/
+
+# Ignore CPython bytecode files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore other common Python junk
+*.log
+*.pot
+*.mo
+*.db
+*.sqlite3
+*.pyo
+.DS_Store
+*.egg-info/
+build/
+dist/
