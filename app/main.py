@@ -143,7 +143,7 @@ async def search(
     - Current Date: {current_date}
     - Current Day: {current_day}
     - Current Time: {current_time_str}
-    - Logged-in User ID: {user_id}
+    - Logged-in User ID: {user_id} // dont mention thisto response to user ohk
     - Location: {lat}, {lon}
 
     CONVERSATION RULES:
@@ -172,11 +172,22 @@ async def search(
          }}
        }}
 
+    3. For person-related queries:
+       - If user asks about a specific person by name -> Use get_nearby_services with user_name
+       - If user asks about a role/type (e.g., "doctor", "mla") -> Use get_nearby_services with tag_name
+       - If user uses pronouns (he/she/they) or "her/him/them" -> Check conversation history for last mentioned person
+       - If user says "tell me about her/him" -> Use last mentioned person's details from conversation history
+       - NEVER pass both user_name and tag_name at the same time
+       - If user_name is available, use that; if tag_name is available, use that
+
     AVAILABLE FUNCTIONS:
     1. get_nearby_services(user_name, latitude, longitude)
        - Use when: User asks about a person or mentions someone
-       - Example: "do you know anjali" -> IMMEDIATELY call get_nearby_services
+       - Example: "do you know anjali" or "i want to meet ramesh" -> IMMEDIATELY call get_nearby_services
        - Always use current location: {lat}, {lon}
+       - MUST be called first before any other function when user mentions a person
+       - If user_name is available, use that; if tag_name is available, use that
+       - NEVER pass both user_name and tag_name at the same time
 
     2. get_all_services()
        - Use when: User says "check" or "ok"
@@ -191,8 +202,9 @@ async def search(
        - Always use logged-in user ID: {user_id}
 
     4. get_user_availability(user_id_of_person)
-       - Use when: User wants to schedule a meeting
-       - Example: "i want to meet her" -> IMMEDIATELY call get_user_availability
+       - Use when: User wants to schedule a meeting AND we have found the person using get_nearby_services
+       - Example: "i want to meet her" -> First call get_nearby_services, then get_user_availability
+       - NEVER call this function before finding the person with get_nearby_services
 
     5. create_appointment(target_user_id, date, time, duration, etc.)
        - Use when: User confirms appointment details with "yes" or "correct" AND has provided:
@@ -215,18 +227,23 @@ async def search(
 
     FUNCTION CALL RULES:
     1. IMMEDIATELY call functions when triggered
-    2. For create_appointment:
+    2. For user-related functions:
+       - ALWAYS call get_nearby_services first when user mentions a person
+       - Only call get_user_availability after finding the person
+       - Only call create_appointment after checking availability
+       - For pronouns or "tell me about her/him", use last mentioned person from conversation history
+    3. For create_appointment:
        - If user says "yes" or "correct" after details are provided -> CALL IMMEDIATELY
        - If user provides date/time without reason -> Ask for reason first
        - If user provides details -> Ask for confirmation
        - If user denies -> Ask for new details
-    3. For create_task:
+    4. For create_task:
        - If user wants to create task -> Ask for reason and details first
        - Only create task after getting complete information
-    4. NO text response before function call
-    5. Use context from previous messages
-    6. If function call needed, return ONLY the function call
-    7. If NO function call needed, respond with friendly message
+    5. NO text response before function call
+    6. Use context from previous messages
+    7. If function call needed, return ONLY the function call
+    8. If NO function call needed, respond with friendly message
 
     RESPONSE FORMAT:
     For general conversation (no function call needed):
@@ -262,7 +279,24 @@ async def search(
          }}
        }}
 
-    2. User: "yes" (after appointment details)
+    2. User: "find doctor near me"
+       -> IMMEDIATELY return:
+       {{
+         "functionCall": {{
+           "name": "get_nearby_services",
+           "args": {{
+             "tag_name": "doctor",
+             "latitude": {lat},
+             "longitude": {lon}
+           }}
+         }}
+       }}
+
+    3. User: "tell me about her" (after finding Meghna)
+       -> Use last mentioned person (Meghna) from conversation history
+       -> Return friendly message with Meghna's details
+
+    4. User: "yes" (after appointment details)
        -> IMMEDIATELY return:
        {{
          "functionCall": {{
@@ -282,7 +316,7 @@ async def search(
          }}
        }}
 
-    3. User: "hi"
+    5. User: "hi"
        -> Return friendly message:
        {{
          "response": {{
@@ -298,6 +332,7 @@ async def search(
     - Date: {current_date}
     - Time: {current_time_str}
     - Day: {current_day}
+    - Conversation History: {conversation_context}
     """
 
     # Call Gemini API with function calling support and conversation history
@@ -347,7 +382,6 @@ async def search(
                 if function_name == "get_all_services":
                     function_response = {"services": get_all_services()}
                 elif function_name == "get_nearby_services":
-                    # Always use the actual lat/lon from the request
                     function_args["latitude"] = lat
                     function_args["longitude"] = lon
                     function_response = {
@@ -382,28 +416,25 @@ async def search(
                         location_id=function_args.get("location_id")
                     )
                 elif function_name == "create_appointment":
-                    # Ensure time is in correct format (HH:MM:SS)
                     time = function_args["time"]
-                    if 'T' in time:  # If it's an ISO timestamp
-                        time = time.split('T')[1].split('Z')[0]  # Extract just the time part
+                    if 'T' in time:
+                        time = time.split('T')[1].split('Z')[0]
                     elif ':' in time and len(time.split(':')) == 2:
-                        time = f"{time}:00"  # Add seconds if missing
+                        time = f"{time}:00"
                     
-                    # Get required parameters from conversation history or function args
                     target_user_id = function_args["target_user_id"]
                     user_availability_id = function_args["user_availability_id"]
                     date = function_args["date"]
                     duration = function_args["duration"]
                     reason = function_args["reason"]
                     
-                    # Create appointment with required parameters
                     function_response = create_appointment(
                         target_user_id=target_user_id,
                         user_availability_id=user_availability_id,
                         date=date,
                         time=time,
                         duration=duration,
-                        appointment_agenda=[reason],  # Use reason as agenda
+                        appointment_agenda=[reason],
                         creator_name=function_args.get("creator_name", "User"),
                         notes=function_args.get("notes", ""),
                         reason=reason,
@@ -416,18 +447,15 @@ async def search(
                 else:
                     function_response = {"error": f"Unknown function: {function_name}"}
                 
-                # Print function response
                 print("\n=== Function Response ===")
                 print(json.dumps(function_response, indent=2))
                 print("=======================\n")
                 
-                # Add to conversation history
                 conversation_history[user_id].extend([
                     {"role": "user", "parts": [{"text": query}]},
                     {"role": "model", "parts": [{"functionCall": function_call}]}
                 ])
                 
-                # Add function response to conversation history
                 conversation_history[user_id].append({
                     "role": "function",
                     "parts": [{
@@ -438,11 +466,10 @@ async def search(
                     }]
                 })
                 
-                # Let Gemini format the response
                 format_prompt = f"""
                 Based on the function response, create a natural, conversational message. Follow these rules:
-                1. Be friendly and helpful
-                2. Include relevant details from the response
+                1. NEVER show any IDs in the response
+                2. Be friendly and helpful
                 3. Format the response as JSON with this EXACT structure:
                 {{
                     "response": {{
@@ -458,77 +485,74 @@ async def search(
                     }}
                 }}
 
-                For get_nearby_services:
-                - If user found: Format profile EXACTLY as shown above
-                - Combine first_name and last_name for the name field
-                - Use phone for phone_number
-                - Use role from official_information[0].role for designation
-                - If no user found: Set profile to null
-                - Add a friendly message about the person and their role
-                - Ask if they want to schedule an appointment or create a task
-                - NEVER show any IDs in the response
-                Example response:
-                {{
-                  "response": {{
-                    "message": "I found [name]! They are a [role] and can help you with [services]. Would you like to schedule an appointment with them or create a task?",
-                    "profile": [
-                      {{
-                        "name": "full name",
-                        "email": "email address",
-                        "phone_number": "phone number",
-                        "designation": "role name"
-                      }}
-                    ]
-                  }}
-                }}
+                RESPONSE RULES:
+                1. For get_nearby_services:
+                   - If user found: "I found [name], who is [designation]. [Their/His/Her] email is [email] and phone number is [phone]."
+                   - If no user found: "I couldn't find anyone matching that description. Would you like to try a different search?"
+                   - NEVER mention user_id, location_id, or any other IDs
 
-                For get_user_availability:
-                - Format response to focus on current week's availability
-                - If available all week, say "Available all week from [start time] to [end time]"
-                - If specific days available, list only those days
-                - Keep response concise and clear
-                - Ask if they want to schedule
-                - If they say yes, ask for:
-                  * Reason for the appointment
-                  * Preferred date and time
-                  * Duration (in minutes)
-                  * Agenda points
-                - Set profile to null
-                - NEVER show any IDs in the response
+                2. For get_user_availability:
+                   - If available: "Great! [Name] is available [time period]. Would you like to schedule an appointment?"
+                   - If not available: "I'm sorry, [name] is not available during that time. Would you like to try a different time?"
+                   - NEVER mention availability_id or any other IDs
 
-                For create_appointment:
-                - If user confirms appointment details:
-                  * Call create_appointment with:
-                    - target_user_id (from previous conversation)
-                    - user_availability_id (from availability check)
-                    - date (from user's preferred date)
-                    - time (from user's preferred time)
-                    - duration (from user's input)
-                    - reason (from user's input)
-                    - client_id (from config)
-                    - department_id (from config)
-                    - location_id (from config)
-                - If appointment created successfully:
-                  * Confirm the appointment details
-                  * Provide next steps
-                - If error:
-                  * Explain the issue
-                  * Suggest alternatives
-                - Set profile to null
-                - NEVER show any IDs in the response
+                3. For create_appointment:
+                   - If successful: "Perfect! I've scheduled your appointment with [name] for [date] at [time] for [duration] minutes to discuss [reason]."
+                   - If failed: "I'm sorry, I couldn't schedule the appointment. Would you like to try again?"
+                   - NEVER mention appointment_id or any other IDs
 
-                For create_task:
-                - If task created successfully:
-                  * Confirm the task details
-                  * Provide next steps
-                - If error:
-                  * Explain the issue
-                  * Suggest alternatives
-                - Set profile to null
-                - NEVER show any IDs in the response
+                4. For create_task:
+                   - If successful: "I've created a task for [name] regarding [task_details]. The task is set to [priority] priority."
+                   - If failed: "I'm sorry, I couldn't create the task. Would you like to try again?"
+                   - NEVER mention task_id or any other IDs
 
-                Current function: {function_name}
-                Function response: {json.dumps(function_response, indent=2)}
+                5. For general conversation:
+                   - Keep responses friendly and natural
+                   - Use proper grammar and punctuation
+                   - Include relevant details without technical information
+                   - NEVER mention any IDs or technical details
+
+                EXAMPLES:
+                1. For finding a person:
+                   {{
+                     "response": {{
+                       "message": "I found Meghna Bordikar, who is an MLA of Jintur. Her email is shubham.vhadgar@baapcompany.com and her phone number is 9021258057.",
+                       "profile": [
+                         {{
+                           "name": "Meghna Bordikar",
+                           "email": "shubham.vhadgar@baapcompany.com",
+                           "phone_number": "9021258057",
+                           "designation": "MLA of jintur"
+                         }}
+                       ]
+                     }}
+                   }}
+
+                2. For availability:
+                   {{
+                     "response": {{
+                       "message": "Great! Meghna is available all week from 1:30 AM to 8:30 PM. Would you like to schedule an appointment?",
+                       "profile": null
+                     }}
+                   }}
+
+                3. For appointment creation:
+                   {{
+                     "response": {{
+                       "message": "Perfect! I've scheduled your appointment with Meghna for June 11th at 5:00 PM for 30 minutes to discuss the water leakage problem.",
+                       "profile": null
+                     }}
+                   }}
+
+                4. For task creation:
+                   {{
+                     "response": {{
+                       "message": "I've created a task for Meghna regarding the water leakage problem. The task is set to medium priority.",
+                       "profile": null
+                     }}
+                   }}
+
+                Current function response: {json.dumps(function_response, indent=2)}
                 """
                 
                 response = GeminiService.call_api(
