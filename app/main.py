@@ -146,6 +146,32 @@ async def search(
     - Logged-in User ID: {user_id}
     - Location: {lat}, {lon}
 
+    CONVERSATION RULES:
+    1. You can answer general questions naturally without function calls, such as:
+       - Recipes and cooking instructions
+       - General knowledge questions
+       - Current affairs and news
+       - Casual conversation
+       - Facts about countries, leaders, etc.
+       - Weather information
+       - Health and wellness tips
+       - Entertainment and movies
+       - Sports and games
+       - Technology and gadgets
+       - Travel and tourism
+       - Education and learning
+       - Business and finance
+       - Science and nature
+       - History and culture
+
+    2. For these topics, respond naturally with:
+       {{
+         "response": {{
+           "message": "Your friendly, informative response here",
+           "profile": null
+         }}
+       }}
+
     AVAILABLE FUNCTIONS:
     1. get_nearby_services(user_name, latitude, longitude)
        - Use when: User asks about a person or mentions someone
@@ -157,8 +183,11 @@ async def search(
        - Example: "check" -> IMMEDIATELY call get_all_services
 
     3. create_task(title, task_type, task_details, assigned_to, etc.)
-       - Use when: User wants to create a task
-       - Example: "create task for her" -> IMMEDIATELY call create_task
+       - Use when: User wants to create a task AND has provided:
+         * Reason/purpose for the task
+         * Task details
+         * Duration/priority
+       - Example: "create task for her" -> First ask for reason and details
        - Always use logged-in user ID: {user_id}
 
     4. get_user_availability(user_id_of_person)
@@ -166,7 +195,11 @@ async def search(
        - Example: "i want to meet her" -> IMMEDIATELY call get_user_availability
 
     5. create_appointment(target_user_id, date, time, duration, etc.)
-       - Use when: User confirms appointment details with "yes" or "correct"
+       - Use when: User confirms appointment details with "yes" or "correct" AND has provided:
+         * Reason for the appointment
+         * Preferred date and time
+         * Duration
+         * Agenda points
        - Required parameters:
          * target_user_id (from previous conversation)
          * user_availability_id (from availability check)
@@ -178,18 +211,22 @@ async def search(
          * department_id (from config)
          * location_id (from config)
          * loggedin_user_id: {user_id}
-       - Example: When user confirms -> IMMEDIATELY call create_appointment
+       - Example: When user confirms -> First verify all details are collected
 
     FUNCTION CALL RULES:
     1. IMMEDIATELY call functions when triggered
     2. For create_appointment:
        - If user says "yes" or "correct" after details are provided -> CALL IMMEDIATELY
+       - If user provides date/time without reason -> Ask for reason first
        - If user provides details -> Ask for confirmation
        - If user denies -> Ask for new details
-    3. NO text response before function call
-    4. Use context from previous messages
-    5. If function call needed, return ONLY the function call
-    6. If NO function call needed, respond with friendly message
+    3. For create_task:
+       - If user wants to create task -> Ask for reason and details first
+       - Only create task after getting complete information
+    4. NO text response before function call
+    5. Use context from previous messages
+    6. If function call needed, return ONLY the function call
+    7. If NO function call needed, respond with friendly message
 
     RESPONSE FORMAT:
     For general conversation (no function call needed):
@@ -415,7 +452,7 @@ async def search(
                                 "name": "full name",
                                 "email": "email address",
                                 "phone_number": "phone number",
-                                "designation": "role id"
+                                "designation": "role name"
                             }}
                         ]
                     }}
@@ -427,6 +464,23 @@ async def search(
                 - Use phone for phone_number
                 - Use role from official_information[0].role for designation
                 - If no user found: Set profile to null
+                - Add a friendly message about the person and their role
+                - Ask if they want to schedule an appointment or create a task
+                - NEVER show any IDs in the response
+                Example response:
+                {{
+                  "response": {{
+                    "message": "I found [name]! They are a [role] and can help you with [services]. Would you like to schedule an appointment with them or create a task?",
+                    "profile": [
+                      {{
+                        "name": "full name",
+                        "email": "email address",
+                        "phone_number": "phone number",
+                        "designation": "role name"
+                      }}
+                    ]
+                  }}
+                }}
 
                 For get_user_availability:
                 - Format response to focus on current week's availability
@@ -440,6 +494,7 @@ async def search(
                   * Duration (in minutes)
                   * Agenda points
                 - Set profile to null
+                - NEVER show any IDs in the response
 
                 For create_appointment:
                 - If user confirms appointment details:
@@ -460,6 +515,17 @@ async def search(
                   * Explain the issue
                   * Suggest alternatives
                 - Set profile to null
+                - NEVER show any IDs in the response
+
+                For create_task:
+                - If task created successfully:
+                  * Confirm the task details
+                  * Provide next steps
+                - If error:
+                  * Explain the issue
+                  * Suggest alternatives
+                - Set profile to null
+                - NEVER show any IDs in the response
 
                 Current function: {function_name}
                 Function response: {json.dumps(function_response, indent=2)}
