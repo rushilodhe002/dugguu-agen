@@ -1,7 +1,7 @@
 """Configuration settings for the application."""
 
 # API Keys and Endpoints
-GEMINI_API_KEY = "AIzaSyBXfwfRY4d7HmuDiPDnePhjKCE-hhAjDk0"
+GEMINI_API_KEY = "AIzaSyB12kmz7Vs2RircREdNZ3xFX5FsKu1mizo"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 # Base URL for the API
