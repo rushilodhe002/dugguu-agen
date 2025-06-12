@@ -1,10 +1,11 @@
 """Main FastAPI application."""
 from fastapi import FastAPI, Header, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 import json
 from datetime import datetime, timedelta
 import pytz
+import re
 
 from app.config import TOOLS
 from app.services.gemini_service import GeminiService
@@ -31,10 +32,107 @@ conversation_history: Dict[str, List[Dict]] = {}
 last_interaction: Dict[str, datetime] = {}
 # Store search results cache
 search_cache: Dict[str, Dict] = {}
+# Store appointment context for each user
+appointment_context: Dict[str, Dict] = {}
 # Conversation timeout in hours
 CONVERSATION_TIMEOUT = 2
 # Search cache timeout in minutes
 SEARCH_CACHE_TIMEOUT = 30
+
+# Tag name mapping for normalization
+TAG_NAME_MAPPING = {
+    # Medical professionals
+    'doctor': 'doctor',
+    'doctors': 'doctor',
+    'physician': 'doctor',
+    'physicians': 'doctor',
+    'surgeon': 'doctor',
+    'surgeons': 'doctor',
+    'dentist': 'dentist',
+    'dentists': 'dentist',
+    'nurse': 'nurse',
+    'nurses': 'nurse',
+    
+    # Government officials
+    'mla': 'mla',
+    'mlas': 'mla',
+    'mp': 'mp',
+    'mps': 'mp',
+    'minister': 'minister',
+    'ministers': 'minister',
+    
+    # Other service providers
+    'lawyer': 'lawyer',
+    'lawyers': 'lawyer',
+    'advocate': 'lawyer',
+    'advocates': 'lawyer',
+    'teacher': 'teacher',
+    'teachers': 'teacher',
+    'professor': 'professor',
+    'professors': 'professor'
+}
+
+def normalize_tag_name(tag: str) -> str:
+    """
+    Normalize tag name to its standard form.
+    Handles plural forms and common variations.
+    """
+    tag = tag.lower().strip()
+    return TAG_NAME_MAPPING.get(tag, tag)
+
+def parse_date_time(input_str: str) -> Tuple[str, str, int]:
+    """
+    Parse date and time from user input.
+    Handles formats like:
+    - "13/6/2025 2pm to 3pm"
+    - "13/6/2025 2:00 PM to 3:00 PM"
+    - "13-6-2025 14:00 to 15:00"
+    Returns (date, time, duration_in_minutes)
+    """
+    # Extract date
+    date_pattern = r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})'
+    date_match = re.search(date_pattern, input_str)
+    if not date_match:
+        return None, None, None
+    
+    day, month, year = map(int, date_match.groups())
+    date = f"{year}-{month:02d}-{day:02d}"
+    
+    # Extract time range
+    time_pattern = r'(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*to\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?'
+    time_match = re.search(time_pattern, input_str.lower())
+    if not time_match:
+        return date, None, None
+    
+    # Parse start time
+    start_hour, start_min, start_ampm = time_match.groups()[:3]
+    start_hour = int(start_hour)
+    start_min = int(start_min) if start_min else 0
+    if start_ampm == 'pm' and start_hour < 12:
+        start_hour += 12
+    elif start_ampm == 'am' and start_hour == 12:
+        start_hour = 0
+    
+    # Parse end time
+    end_hour, end_min, end_ampm = time_match.groups()[3:]
+    end_hour = int(end_hour)
+    end_min = int(end_min) if end_min else 0
+    if end_ampm == 'pm' and end_hour < 12:
+        end_hour += 12
+    elif end_ampm == 'am' and end_hour == 12:
+        end_hour = 0
+    
+    # Calculate duration in minutes
+    start_time = start_hour * 60 + start_min
+    end_time = end_hour * 60 + end_min
+    if end_time < start_time:
+        end_time += 24 * 60  # Add 24 hours if end time is next day
+    duration = end_time - start_time
+    
+    # Format time string
+    time = f"{start_hour:02d}:{start_min:02d}:00"
+    
+    return date, time, duration
 
 def clean_old_conversations():
     """Clean up old conversations and search cache based on timeout."""
@@ -45,6 +143,8 @@ def clean_old_conversations():
             del last_interaction[user_id]
             if user_id in search_cache:
                 del search_cache[user_id]
+            if user_id in appointment_context:
+                del appointment_context[user_id]
 
 def get_cached_search(user_id: str, search_key: str) -> Optional[Dict]:
     """Get cached search result if available and not expired."""
@@ -166,6 +266,20 @@ async def search(
     current_time_str = current_time.strftime('%H:%M:%S')
     current_day = current_time.strftime('%A')
 
+    # Check if this is an appointment-related query
+    if any(word in query.lower() for word in ['appointment', 'schedule', 'book', 'meet', 'meeting']):
+        # Try to parse date and time from the query
+        date, time, duration = parse_date_time(query)
+        if date and time and duration:
+            # Store in appointment context
+            if user_id not in appointment_context:
+                appointment_context[user_id] = {}
+            appointment_context[user_id].update({
+                'date': date,
+                'time': time,
+                'duration': duration
+            })
+
     # First system prompt for analyzing user query and deciding function calls
     analysis_prompt = f"""
     You are a friendly and helpful AI assistant that engages in natural conversation while efficiently handling tasks.
@@ -177,6 +291,7 @@ async def search(
     - Current Time: {current_time_str}
     - Logged-in User ID: {user_id} 
     - Location: {lat}, {lon}
+    - Appointment Context: {appointment_context.get(user_id, {})}
 
     CONVERSATION MANAGEMENT:
     1. Always maintain context from previous messages
@@ -232,18 +347,18 @@ async def search(
     2. For these topics, respond naturally with:
        {{
          "response": {{
-           "message": "Your friendly, informative response here",
+           "message": "Your warm, friendly response here",
            "profile": null
          }}
        }}
 
     3. For person-related queries:
        - If user asks about a specific person by name -> Use get_nearby_services with user_name
-       - If user asks about a role/type (e.g., "doctor", "mla") -> Use get_nearby_services with tag_name
+       - If user asks about a role/type (e.g., "doctor", "mla") -> Use get_nearby_services with tagName
        - If user uses pronouns (he/she/they) or "her/him/them" -> Check conversation history for last mentioned person
        - If user says "tell me about her/him" -> Use last mentioned person's details from conversation history
-       - NEVER pass both user_name and tag_name at the same time
-       - If user_name is available, use that; if tag_name is available, use that
+       - NEVER pass both user_name and tagName at the same time
+       - If user_name is available, use that; if tagName is available, use that
        - Handle spelling variations in names and roles
        - NEVER search for a person again if already found in conversation history
 
@@ -253,8 +368,8 @@ async def search(
        - Example: "do you know anjali" or "i want to meet ramesh" -> IMMEDIATELY call get_nearby_services
        - Always use current location: {lat}, {lon}
        - MUST be called first before any other function when user mentions a person
-       - If user_name is available, use that; if tag_name is available, use that
-       - NEVER pass both user_name and tag_name at the same time
+       - If user_name is available, use that; if tagName is available, use that
+       - NEVER pass both user_name and tagName at the same time
        - Handle spelling variations in names and roles
        - NEVER call if person already found in conversation history
 
@@ -386,7 +501,7 @@ async def search(
          "functionCall": {{
            "name": "get_nearby_services",
            "args": {{
-             "tag_name": "doctor",
+             "tagName": "doctor",
              "latitude": {lat},
              "longitude": {lon}
            }}
@@ -487,7 +602,7 @@ async def search(
                     function_response = {"services": get_all_services()}
                 elif function_name == "get_nearby_services":
                     # Check cache first
-                    search_key = f"{function_args.get('user_name', '')}_{function_args.get('tag_name', '')}_{lat}_{lon}"
+                    search_key = f"{function_args.get('user_name', '')}_{function_args.get('tagName', '')}_{lat}_{lon}"
                     cached_result = get_cached_search(user_id, search_key)
                     
                     if cached_result:
@@ -496,6 +611,11 @@ async def search(
                     else:
                         function_args["latitude"] = lat
                         function_args["longitude"] = lon
+                        
+                        # Normalize tag name if present
+                        if "tagName" in function_args:
+                            function_args["tagName"] = normalize_tag_name(function_args["tagName"])
+                        
                         search_result = get_nearby_services(
                             latitude=lat,
                             longitude=lon,
@@ -503,7 +623,7 @@ async def search(
                             radius_km=function_args.get("radius_km", 20),
                             page_size=function_args.get("page_size", 2),
                             user_name=function_args.get("user_name"),
-                            tag_name=function_args.get("tag_name")
+                            tag_name=function_args.get("tagName")
                         )
                         function_response = {"nearby_services": search_result}
                         # Cache the result
@@ -601,7 +721,14 @@ async def search(
                                 }
                             }
                 elif function_name == "create_appointment":
-                    time = function_args["time"]
+                    # Get appointment context
+                    context = appointment_context.get(user_id, {})
+                    
+                    # Use context values if available, otherwise use function args
+                    time = context.get('time') or function_args.get('time')
+                    date = context.get('date') or function_args.get('date')
+                    duration = context.get('duration') or function_args.get('duration')
+                    
                     if 'T' in time:
                         time = time.split('T')[1].split('Z')[0]
                     elif ':' in time and len(time.split(':')) == 2:
@@ -609,8 +736,6 @@ async def search(
                     
                     target_user_id = function_args["target_user_id"]
                     user_availability_id = function_args["user_availability_id"]
-                    date = function_args["date"]
-                    duration = function_args["duration"]
                     reason = function_args["reason"]
                     
                     function_response = create_appointment(
@@ -629,6 +754,10 @@ async def search(
                         location_id=function_args.get("location_id"),
                         created_by=user_id
                     )
+                    
+                    # Clear appointment context after successful creation
+                    if function_response.get("success"):
+                        appointment_context[user_id] = {}
                 else:
                     function_response = {"error": f"Unknown function: {function_name}"}
                 
