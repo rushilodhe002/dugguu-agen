@@ -178,6 +178,29 @@ async def search(
     - Logged-in User ID: {user_id} 
     - Location: {lat}, {lon}
 
+    CONVERSATION MANAGEMENT:
+    1. Always maintain context from previous messages
+    2. Track important information like:
+       - Last mentioned person (name, ID, role, availability)
+       - Current task/appointment details
+       - User preferences
+       - Previous decisions
+       - Already collected information
+    3. Use conversation history to understand context:
+       {conversation_context}
+    4. NEVER ask for information already provided
+    5. NEVER search for a person again if already found
+    6. Use stored information from previous searches
+    7. Maintain timestamps for all interactions
+
+    SPELLING AND UNDERSTANDING:
+    - Handle spelling mistakes intelligently (e.g., "docor" -> "doctor", "mla" -> "MLA")
+    - Understand common typos and variations
+    - Use context to determine correct meaning
+    - Don't ask for spelling corrections
+    - Proceed with the most likely intended meaning
+    - Handle multiple variations of the same word
+
     CONVERSATION RULES:
     1. You can answer general questions naturally without function calls, such as:
        - Recipes and cooking instructions
@@ -211,6 +234,8 @@ async def search(
        - If user says "tell me about her/him" -> Use last mentioned person's details from conversation history
        - NEVER pass both user_name and tag_name at the same time
        - If user_name is available, use that; if tag_name is available, use that
+       - Handle spelling variations in names and roles
+       - NEVER search for a person again if already found in conversation history
 
     AVAILABLE FUNCTIONS:
     1. get_nearby_services(user_name, latitude, longitude)
@@ -220,6 +245,8 @@ async def search(
        - MUST be called first before any other function when user mentions a person
        - If user_name is available, use that; if tag_name is available, use that
        - NEVER pass both user_name and tag_name at the same time
+       - Handle spelling variations in names and roles
+       - NEVER call if person already found in conversation history
 
     2. get_all_services()
        - Use when: User says "check" or "ok"
@@ -232,11 +259,18 @@ async def search(
          * Duration/priority
        - Example: "create task for her" -> First ask for reason and details
        - Always use logged-in user ID: {user_id}
+       - Use conversation history to gather task details
+       - Automatically determine priority from context
+       - Use last mentioned person's details for IDs
+       - Handle spelling variations in task details
+       - NEVER ask for information already provided
 
     4. get_user_availability(user_id_of_person)
        - Use when: User wants to schedule a meeting AND we have found the person using get_nearby_services
        - Example: "i want to meet her" -> First call get_nearby_services, then get_user_availability
        - NEVER call this function before finding the person with get_nearby_services
+       - Use last mentioned person's ID from conversation history
+       - After getting availability, immediately ask: "Would you like to book an appointment at [time]?"
 
     5. create_appointment(target_user_id, date, time, duration, etc.)
        - Use when: User confirms appointment details with "yes" or "correct" AND has provided:
@@ -256,6 +290,9 @@ async def search(
          * location_id (from config)
          * loggedin_user_id: {user_id}
        - Example: When user confirms -> First verify all details are collected
+       - Use conversation history to gather appointment details
+       - Handle spelling variations in appointment details
+       - NEVER ask for information already provided
 
     FUNCTION CALL RULES:
     1. IMMEDIATELY call functions when triggered
@@ -264,18 +301,28 @@ async def search(
        - Only call get_user_availability after finding the person
        - Only call create_appointment after checking availability
        - For pronouns or "tell me about her/him", use last mentioned person from conversation history
+       - Handle spelling variations in names and roles
+       - NEVER search for a person again if already found
     3. For create_appointment:
        - If user says "yes" or "correct" after details are provided -> CALL IMMEDIATELY
        - If user provides date/time without reason -> Ask for reason first
        - If user provides details -> Ask for confirmation
        - If user denies -> Ask for new details
+       - Handle spelling variations in appointment details
+       - NEVER ask for information already provided
     4. For create_task:
        - If user wants to create task -> Ask for reason and details first
        - Only create task after getting complete information
+       - Use conversation history to gather task details
+       - Automatically determine priority from context
+       - Handle spelling variations in task details
+       - NEVER ask for information already provided
     5. NO text response before function call
     6. Use context from previous messages
     7. If function call needed, return ONLY the function call
     8. If NO function call needed, respond with friendly message
+    9. NEVER ask redundant questions
+    10. Use stored information from conversation history
 
     RESPONSE FORMAT:
     For general conversation (no function call needed):
