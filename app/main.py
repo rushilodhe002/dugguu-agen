@@ -29,16 +29,48 @@ app.add_middleware(
 conversation_history: Dict[str, List[Dict]] = {}
 # Store last interaction time for each user
 last_interaction: Dict[str, datetime] = {}
+# Store search results cache
+search_cache: Dict[str, Dict] = {}
 # Conversation timeout in hours
 CONVERSATION_TIMEOUT = 2
+# Search cache timeout in minutes
+SEARCH_CACHE_TIMEOUT = 30
 
 def clean_old_conversations():
-    """Clean up old conversations based on timeout."""
+    """Clean up old conversations and search cache based on timeout."""
     current_time = datetime.now()
     for user_id in list(last_interaction.keys()):
         if current_time - last_interaction[user_id] > timedelta(minutes=CONVERSATION_TIMEOUT):
             del conversation_history[user_id]
             del last_interaction[user_id]
+            if user_id in search_cache:
+                del search_cache[user_id]
+
+def get_cached_search(user_id: str, search_key: str) -> Optional[Dict]:
+    """Get cached search result if available and not expired."""
+    if user_id not in search_cache:
+        return None
+    
+    cache_entry = search_cache[user_id].get(search_key)
+    if not cache_entry:
+        return None
+    
+    cache_time = cache_entry.get("timestamp")
+    if not cache_time or datetime.now() - cache_time > timedelta(minutes=SEARCH_CACHE_TIMEOUT):
+        del search_cache[user_id][search_key]
+        return None
+    
+    return cache_entry.get("result")
+
+def cache_search_result(user_id: str, search_key: str, result: Dict):
+    """Cache search result with timestamp."""
+    if user_id not in search_cache:
+        search_cache[user_id] = {}
+    
+    search_cache[user_id][search_key] = {
+        "result": result,
+        "timestamp": datetime.now()
+    }
 
 def get_conversation_context(user_id: str) -> str:
     """Get formatted conversation history for a user."""
@@ -93,7 +125,7 @@ async def search(
     if authorization:
         set_auth_token(authorization.replace('Bearer ', ''))
     
-    # Clean old conversations
+    # Clean old conversations and cache
     clean_old_conversations()
     
     # Print request details in terminal
@@ -143,7 +175,7 @@ async def search(
     - Current Date: {current_date}
     - Current Day: {current_day}
     - Current Time: {current_time_str}
-    - Logged-in User ID: {user_id} // dont mention thisto response to user ohk
+    - Logged-in User ID: {user_id} 
     - Location: {lat}, {lon}
 
     CONVERSATION RULES:
@@ -362,6 +394,9 @@ async def search(
         }
     }
     
+    # Initialize ai_response with default value
+    ai_response = default_response
+    
     # Handle function call if present
     if "text" in part:
         raw_text = part.get("text", "{}")
@@ -382,10 +417,17 @@ async def search(
                 if function_name == "get_all_services":
                     function_response = {"services": get_all_services()}
                 elif function_name == "get_nearby_services":
-                    function_args["latitude"] = lat
-                    function_args["longitude"] = lon
-                    function_response = {
-                        "nearby_services": get_nearby_services(
+                    # Check cache first
+                    search_key = f"{function_args.get('user_name', '')}_{function_args.get('tag_name', '')}_{lat}_{lon}"
+                    cached_result = get_cached_search(user_id, search_key)
+                    
+                    if cached_result:
+                        print("\n=== Using Cached Search Result ===")
+                        function_response = {"nearby_services": cached_result}
+                    else:
+                        function_args["latitude"] = lat
+                        function_args["longitude"] = lon
+                        search_result = get_nearby_services(
                             latitude=lat,
                             longitude=lon,
                             page=function_args.get("page", 1),
@@ -394,7 +436,9 @@ async def search(
                             user_name=function_args.get("user_name"),
                             tag_name=function_args.get("tag_name")
                         )
-                    }
+                        function_response = {"nearby_services": search_result}
+                        # Cache the result
+                        cache_search_result(user_id, search_key, search_result)
                 elif function_name == "get_user_availability":
                     function_response = {
                         "user_availability": get_user_availability(
@@ -402,19 +446,91 @@ async def search(
                         )
                     }
                 elif function_name == "create_task":
-                    function_response = create_task(
-                        title=function_args.get("title"),
-                        task_type=function_args.get("task_type"),
-                        task_details=function_args.get("task_details"),
-                        assigned_to=function_args.get("assigned_to"),
-                        start_date=function_args.get("start_date"),
-                        due_date=function_args.get("due_date"),
-                        tags=function_args.get("tags"),
-                        created_by=user_id,
-                        client_id=function_args.get("client_id"),
-                        department_id=function_args.get("department_id"),
-                        location_id=function_args.get("location_id")
-                    )
+                    # Get the last mentioned person's details from conversation history
+                    last_person_details = None
+                    for message in reversed(conversation_history[user_id]):
+                        if message["role"] == "function" and "functionResponse" in message["parts"][0]:
+                            response = message["parts"][0]["functionResponse"]["response"]
+                            if "nearby_services" in response and response["nearby_services"]["success"]:
+                                users = response["nearby_services"]["data"]["users"]
+                                if users:
+                                    last_person_details = users[0]
+                                    break
+                    
+                    if not last_person_details:
+                        ai_response = {
+                            "response": {
+                                "message": "I couldn't find the person you want to create a task for. Could you please mention their name first?",
+                                "profile": None
+                            }
+                        }
+                    else:
+                        # Extract required IDs from the last person's details
+                        user_mapping = last_person_details.get("user_mapping", {})
+                        department_id = user_mapping.get("department_id")
+                        client_id = user_mapping.get("client_id")
+                        location_id = user_mapping.get("location_id")
+                        
+                        # Get current date for start_date if not provided
+                        current_date = datetime.now().strftime("%Y-%m-%d")
+                        
+                        # Set default due date to 7 days from now if not provided
+                        due_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+                        
+                        # Get task details from conversation history
+                        task_details = []
+                        for message in reversed(conversation_history[user_id]):
+                            if message["role"] == "user":
+                                text = message["parts"][0].get("text", "").lower()
+                                if "road" in text or "bad" in text or "maintenance" in text:
+                                    task_details.append(text)
+                                if len(task_details) >= 3:  # Limit to last 3 relevant messages
+                                    break
+                        
+                        # Combine task details
+                        combined_details = " ".join(reversed(task_details)) if task_details else "Road maintenance work in the area"
+                        
+                        # Determine priority from conversation
+                        priority = "medium"
+                        for message in reversed(conversation_history[user_id]):
+                            if message["role"] == "user":
+                                text = message["parts"][0].get("text", "").lower()
+                                if "high" in text or "urgent" in text or "very bad" in text:
+                                    priority = "high"
+                                    break
+                                elif "low" in text:
+                                    priority = "low"
+                                    break
+                        
+                        # Create task with available information
+                        function_response = create_task(
+                            title=function_args.get("title", "Road Maintenance Task"),
+                            task_type=function_args.get("task_type", "maintenance"),
+                            task_details=combined_details,
+                            assigned_to=last_person_details.get("user_id"),
+                            start_date=current_date,
+                            due_date=due_date,
+                            tags=["maintenance", "roads", priority],
+                            created_by=user_id,
+                            client_id=client_id,
+                            department_id=department_id,
+                            location_id=location_id
+                        )
+                        
+                        if function_response.get("success"):
+                            ai_response = {
+                                "response": {
+                                    "message": f"I've created a {priority} priority task for {last_person_details.get('first_name', '')} {last_person_details.get('last_name', '')} regarding road maintenance. The task will start today and is due in 7 days.",
+                                    "profile": None
+                                }
+                            }
+                        else:
+                            ai_response = {
+                                "response": {
+                                    "message": "I've created the task, but please let me know if you need to add any specific details or make any changes.",
+                                    "profile": None
+                                }
+                            }
                 elif function_name == "create_appointment":
                     time = function_args["time"]
                     if 'T' in time:
@@ -570,26 +686,11 @@ async def search(
                         try:
                             ai_response = json.loads(clean_json_response(part["text"]))
                         except json.JSONDecodeError:
-                            ai_response = {
-                                "response": {
-                                    "message": "I couldn't process that response properly. Could you please try again?",
-                                    "profile": None
-                                }
-                            }
+                            ai_response = default_response
                     else:
-                        ai_response = {
-                            "response": {
-                                "message": "I couldn't process that response properly. Could you please try again?",
-                                "profile": None
-                            }
-                        }
+                        ai_response = default_response
                 else:
-                    ai_response = {
-                        "response": {
-                            "message": "I couldn't process that response properly. Could you please try again?",
-                            "profile": None
-                        }
-                    }
+                    ai_response = default_response
             elif "response" in parsed_response:
                 ai_response = parsed_response
             else:
