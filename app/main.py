@@ -72,6 +72,77 @@ TAG_NAME_MAPPING = {
     'professors': 'professor'
 }
 
+# Marathi keywords for language detection
+MARATHI_KEYWORDS = [
+    "mi", "tu", "to", "te", "ho", "nahi", "kay", "ka", "kon", "kase", 
+    "kuthe", "kevha", "kiti", "ahe", "aahe", "hot", "hoti", "ahet", 
+    "mala", "tula", "tyala", "amhala", "tumhala", "tyanna", "pahije",
+    "aai", "baba", "mulga", "mulgi", "ghar", "kam", "karnar", "karto",
+    "karte", "kartoy", "kartos", "kartat", "kay", "kuth", "kich", "pan",
+    "tar", "pudhe", "mule", "ithe", "thodi", "vel", "jau", "yeu", "ja",
+    "ye", "gelo", "gela", "geli", "alo", "ali", "yet", "nako", "nka", 
+    "mhanun", "ki", "ani"
+]
+
+def detect_language(text: str) -> str:
+    """Detect if text is Marathi or English."""
+    if not text:
+        return 'en'
+    
+    words = re.findall(r'\w+', text.lower())
+    for word in words:
+        if word in MARATHI_KEYWORDS:
+            return 'mr'
+    return 'en'
+
+def get_default_response(lang: str) -> dict:
+    """Get default response based on language."""
+    if lang == 'mr':
+        return {
+            "response": {
+                "message": "Mala samajat nahi ala. Punha sanga shakta ka?",
+                "profile": None
+            }
+        }
+    return {
+        "response": {
+            "message": "I didn't understand that. Could you please rephrase?",
+            "profile": None
+        }
+    }
+
+def get_location_error(lang: str) -> dict:
+    """Get location error response based on language."""
+    if lang == 'mr':
+        return {
+            "response": {
+                "message": "Latitude kinva longitude format chukicha ahe",
+                "profile": None
+            }
+        }
+    return {
+        "response": {
+            "message": "Invalid latitude or longitude format",
+            "profile": None
+        }
+    }
+
+def get_person_not_found_error(lang: str) -> dict:
+    """Get person not found error based on language."""
+    if lang == 'mr':
+        return {
+            "response": {
+                "message": "Mala tumhala task denyasaathi kontihi vyakti sapadla nahi. Krupaya tyache nav sanga.",
+                "profile": None
+            }
+        }
+    return {
+        "response": {
+            "message": "I couldn't find the person you want to create a task for. Could you please mention their name first?",
+            "profile": None
+        }
+    }
+
 def normalize_tag_name(tag: str) -> str:
     """
     Normalize tag name to its standard form.
@@ -235,17 +306,16 @@ async def search(
     print(f"Location: {latitude}, {longitude}")
     print("==================\n")
 
+    # Detect user language
+    current_lang = detect_language(query)
+    print(f"Detected language: {'Marathi' if current_lang == 'mr' else 'English'}")
+
     # Convert latitude and longitude to float
     try:
         lat = float(latitude)
         lon = float(longitude)
     except ValueError:
-        error_response = {
-            "response": {
-                "message": "Invalid latitude or longitude format",
-                "profile": None
-            }
-        }
+        error_response = get_location_error(current_lang)
         print(f"Error: {error_response['response']['message']}\n")
         return error_response
 
@@ -284,6 +354,12 @@ async def search(
     analysis_prompt = f"""
     You are a friendly and helpful AI assistant that engages in natural conversation while efficiently handling tasks.
     Your responses should feel like talking to a friend, but you must also be quick to take action when needed.
+
+    LANGUAGE REQUIREMENT:
+    - User's language: {'Marathi' if current_lang == 'mr' else 'English'}
+    - You MUST respond in the same language as the user's query
+    - For Marathi: write actualy in marathi (यासारखे) for Marathi responses
+    - For English: Respond in English
 
     CURRENT CONTEXT:
     - Current Date: {current_date}
@@ -559,24 +635,14 @@ async def search(
     )
     
     if not response:
-        return {
-            "response": {
-                "message": "Failed to get response from AI service",
-                "profile": None
-            }
-        }
+        return get_default_response(current_lang)
     
     # Process response
     candidate = response.get("candidates", [{}])[0]
     content = candidate.get("content", {})
     part = content.get("parts", [{}])[0]
     
-    default_response = {
-        "response": {
-            "message": "I didn't understand that. Could you please rephrase?",
-            "profile": None
-        }
-    }
+    default_response = get_default_response(current_lang)
     
     # Initialize ai_response with default value
     ai_response = default_response
@@ -647,12 +713,7 @@ async def search(
                                     break
                     
                     if not last_person_details:
-                        ai_response = {
-                            "response": {
-                                "message": "I couldn't find the person you want to create a task for. Could you please mention their name first?",
-                                "profile": None
-                            }
-                        }
+                        ai_response = get_person_not_found_error(current_lang)
                     else:
                         # Extract required IDs from the last person's details
                         user_mapping = last_person_details.get("user_mapping", {})
@@ -707,19 +768,35 @@ async def search(
                         )
                         
                         if function_response.get("success"):
-                            ai_response = {
-                                "response": {
-                                    "message": f"I've created a {priority} priority task for {last_person_details.get('first_name', '')} {last_person_details.get('last_name', '')} regarding road maintenance. The task will start today and is due in 7 days.",
-                                    "profile": None
+                            if current_lang == 'mr':
+                                ai_response = {
+                                    "response": {
+                                        "message": f"Me {last_person_details.get('first_name', '')} {last_person_details.get('last_name', '')} yancha road maintenance babtit {priority} priority task banavla ahe. Task aaj suru hoil ani 7 divsat sampel.",
+                                        "profile": None
+                                    }
                                 }
-                            }
+                            else:
+                                ai_response = {
+                                    "response": {
+                                        "message": f"I've created a {priority} priority task for {last_person_details.get('first_name', '')} {last_person_details.get('last_name', '')} regarding road maintenance. The task will start today and is due in 7 days.",
+                                        "profile": None
+                                    }
+                                }
                         else:
-                            ai_response = {
-                                "response": {
-                                    "message": "I've created the task, but please let me know if you need to add any specific details or make any changes.",
-                                    "profile": None
+                            if current_lang == 'mr':
+                                ai_response = {
+                                    "response": {
+                                        "message": "Me task banavla, pan tumhala kahi specific details add karayche asel tar sanga.",
+                                        "profile": None
+                                    }
                                 }
-                            }
+                            else:
+                                ai_response = {
+                                    "response": {
+                                        "message": "I've created the task, but please let me know if you need to add any specific details or make any changes.",
+                                        "profile": None
+                                    }
+                                }
                 elif function_name == "create_appointment":
                     # Get appointment context
                     context = appointment_context.get(user_id, {})
@@ -799,6 +876,10 @@ async def search(
                     }}
                 }}
 
+                RESPONSE LANGUAGE:
+                - You MUST respond in {'Marathi using Roman script' if current_lang == 'mr' else 'English'}
+                - For Marathi: Use Roman script (English letters) only
+
                 RESPONSE RULES:
                 1. For get_nearby_services:
                    - If user found: "I found [name], who is [designation]. [Their/His/Her] email is [email] and phone number is [phone]. Would you like to schedule an appointment with [name]?"
@@ -836,46 +917,6 @@ async def search(
                    - NEVER mention any IDs or technical details
                    - Make the conversation flow naturally
                    - Guide the user to the next step
-
-                EXAMPLES:
-                1. For finding a person:
-                   {{
-                     "response": {{
-                       "message": "I found Meghna Bordikar, who is an MLA of Jintur. Her email is shubham.vhadgar@baapcompany.com and her phone number is 9021258057. Would you like to schedule an appointment with Meghna?",
-                       "profile": [
-                         {{
-                           "name": "Meghna Bordikar",
-                           "email": "shubham.vhadgar@baapcompany.com",
-                           "phone_number": "9021258057",
-                           "designation": "MLA of jintur"
-                         }}
-                       ]
-                     }}
-                   }}
-
-                2. For availability:
-                   {{
-                     "response": {{
-                       "message": "Great! Meghna is available all week from 1:30 AM to 8:30 PM. Would you like to schedule an appointment? Just let me know your preferred date and time.",
-                       "profile": null
-                     }}
-                   }}
-
-                3. For appointment creation:
-                   {{
-                     "response": {{
-                       "message": "Perfect! I've scheduled your appointment with Meghna for June 11th at 5:00 PM for 30 minutes to discuss the water leakage problem. Is there anything else you need help with?",
-                       "profile": null
-                     }}
-                   }}
-
-                4. For task creation:
-                   {{
-                     "response": {{
-                       "message": "I've created a task for Meghna regarding the water leakage problem. The task is set to medium priority. Is there anything else you need help with?",
-                       "profile": null
-                     }}
-                   }}
 
                 Current function response: {json.dumps(function_response, indent=2)}
                 """
@@ -954,4 +995,4 @@ async def search(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)
