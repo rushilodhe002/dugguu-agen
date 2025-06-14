@@ -74,6 +74,7 @@ TAG_NAME_MAPPING = {
 
 # Marathi keywords for language detection
 MARATHI_KEYWORDS = [
+    # Pronouns and basic words
     "mi", "tu", "to", "te", "ho", "nahi", "kay", "ka", "kon", "kase", 
     "kuthe", "kevha", "kiti", "ahe", "aahe", "hot", "hoti", "ahet", 
     "mala", "tula", "tyala", "amhala", "tumhala", "tyanna", "pahije",
@@ -81,7 +82,31 @@ MARATHI_KEYWORDS = [
     "karte", "kartoy", "kartos", "kartat", "kay", "kuth", "kich", "pan",
     "tar", "pudhe", "mule", "ithe", "thodi", "vel", "jau", "yeu", "ja",
     "ye", "gelo", "gela", "geli", "alo", "ali", "yet", "nako", "nka", 
-    "mhanun", "ki", "ani"
+    "mhanun", "ki", "ani",
+    
+    # Additional common Marathi words
+    "tyachya", "tyachi", "tya", "tyala", "tyanna", "tyanche", "tyanchi",
+    "maza", "mazi", "majha", "majhi", "majhe", "majhya", "majhi",
+    "tumcha", "tumchi", "tumche", "tumchya", "tumchya",
+    "amcha", "amchi", "amche", "amchya", "amchya",
+    "sobat", "sathi", "karun", "karat", "kela", "keli", "kele",
+    "appointment", "meeting", "task", "work", "job", "kam",
+    "aaj", "udya", "kal", "parwa", "divas", "ratri", "sakal", "sandhyakal",
+    "kiti", "keti", "kuthe", "kuthe", "kase", "kasa", "kashi",
+    "mhanje", "mhanun", "mhanon", "mhanat", "mhanala", "mhanali",
+    "pahije", "pahijet", "pahijel", "pahijeli", "pahijele",
+    "sakta", "saktat", "saktel", "sakteli", "saktele",
+    "shakta", "shaktat", "shaktel", "shakteli", "shaktele",
+    "sangta", "sangtat", "sangtel", "sangteli", "sangtele",
+    "sang", "sanga", "sangna", "sangnar", "sangnar",
+    "book", "booking", "schedule", "time", "date", "divas",
+    "meet", "meeting", "appointment", "appointments",
+    "karnar", "karnar", "karnar", "karnar", "karnar",
+    "karto", "karte", "kartoy", "kartos", "kartat",
+    "kela", "keli", "kele", "kelo", "keli",
+    "hot", "hoti", "hota", "hotat", "hotel",
+    "ahe", "aahe", "ahet", "aahet", "ahet",
+    "nahi", "naka", "nko", "nka", "nhi"
 ]
 
 def detect_language(text: str) -> str:
@@ -89,10 +114,16 @@ def detect_language(text: str) -> str:
     if not text:
         return 'en'
     
+    # Convert to lowercase and split into words
     words = re.findall(r'\w+', text.lower())
-    for word in words:
-        if word in MARATHI_KEYWORDS:
-            return 'mr'
+    
+    # Count Marathi words
+    marathi_word_count = sum(1 for word in words if word in MARATHI_KEYWORDS)
+    
+    # If more than 30% of words are Marathi, consider it Marathi
+    if marathi_word_count / len(words) > 0.3:
+        return 'mr'
+    
     return 'en'
 
 def get_default_response(lang: str) -> dict:
@@ -100,7 +131,7 @@ def get_default_response(lang: str) -> dict:
     if lang == 'mr':
         return {
             "response": {
-                "message": "Mala samajat nahi ala. Punha sanga shakta ka?",
+                "message": "मला समजत नाही आलं. पुन्हा सांगू शकता का?",
                 "profile": None
             }
         }
@@ -116,7 +147,7 @@ def get_location_error(lang: str) -> dict:
     if lang == 'mr':
         return {
             "response": {
-                "message": "Latitude kinva longitude format chukicha ahe",
+                "message": "अक्षांश किंवा रेखांश फॉरमॅट चुकीचा आहे",
                 "profile": None
             }
         }
@@ -132,7 +163,7 @@ def get_person_not_found_error(lang: str) -> dict:
     if lang == 'mr':
         return {
             "response": {
-                "message": "Mala tumhala task denyasaathi kontihi vyakti sapadla nahi. Krupaya tyache nav sanga.",
+                "message": "मला तुम्हाला टास्क देण्यासाठी कोणताही व्यक्ती सापडला नाही. कृपया त्याचं नाव सांगा.",
                 "profile": None
             }
         }
@@ -358,7 +389,7 @@ async def search(
     LANGUAGE REQUIREMENT:
     - User's language: {'Marathi' if current_lang == 'mr' else 'English'}
     - You MUST respond in the same language as the user's query
-    - For Marathi: write actualy in marathi (यासारखे) for Marathi responses
+    - For Marathi: Use proper Devanagari script (यासारखे) for Marathi responses
     - For English: Respond in English
 
     CURRENT CONTEXT:
@@ -771,7 +802,7 @@ async def search(
                             if current_lang == 'mr':
                                 ai_response = {
                                     "response": {
-                                        "message": f"Me {last_person_details.get('first_name', '')} {last_person_details.get('last_name', '')} yancha road maintenance babtit {priority} priority task banavla ahe. Task aaj suru hoil ani 7 divsat sampel.",
+                                        "message": f"मी {last_person_details.get('first_name', '')} {last_person_details.get('last_name', '')} यांचा रोड मेंटेनन्स बाबत {priority} प्राधान्याचा टास्क बनवला आहे. टास्क आज सुरू होईल आणि ७ दिवसात संपेल.",
                                         "profile": None
                                     }
                                 }
@@ -786,7 +817,7 @@ async def search(
                             if current_lang == 'mr':
                                 ai_response = {
                                     "response": {
-                                        "message": "Me task banavla, pan tumhala kahi specific details add karayche asel tar sanga.",
+                                        "message": "मी टास्क बनवला, पण तुम्हाला काही स्पेसिफिक डिटेल्स जोडायचे असल्यास सांगा.",
                                         "profile": None
                                     }
                                 }
@@ -877,35 +908,35 @@ async def search(
                 }}
 
                 RESPONSE LANGUAGE:
-                - You MUST respond in {'Marathi using Roman script' if current_lang == 'mr' else 'English'}
-                - For Marathi: Use Roman script (English letters) only
+                - You MUST respond in {'Marathi using Devanagari script' if current_lang == 'mr' else 'English'}
+                - For Marathi: Use proper Devanagari script (यासारखे) for Marathi responses
 
                 RESPONSE RULES:
                 1. For get_nearby_services:
-                   - If user found: "I found [name], who is [designation]. [Their/His/Her] email is [email] and phone number is [phone]. Would you like to schedule an appointment with [name]?"
-                   - If no user found: "I couldn't find anyone matching that description. Would you like to try a different search?"
+                   - If user found: {'मी [name] यांना सापडलो/सापडले, जे [designation] आहेत. त्यांचा ईमेल [email] आणि फोन नंबर [phone] आहे. तुम्हाला [name] यांच्याशी अपॉइंटमेंट बुक करायचे आहे का?' if current_lang == 'mr' else 'I found [name], who is [designation]. [Their/His/Her] email is [email] and phone number is [phone]. Would you like to schedule an appointment with [name]?'}
+                   - If no user found: {'मला तुमच्या वर्णनाशी जुळणारा कोणी सापडला नाही. तुम्हाला वेगळा शोध करायचा आहे का?' if current_lang == 'mr' else 'I could not find anyone matching that description. Would you like to try a different search?'}
                    - NEVER mention user_id, location_id, or any other IDs
                    - Make the response conversational and friendly
                    - Always ask about scheduling an appointment after finding someone
                    - Use natural language and proper pronouns
 
                 2. For get_user_availability:
-                   - If available: "Great! [Name] is available [time period]. Would you like to schedule an appointment? Just let me know your preferred date and time."
-                   - If not available: "I'm sorry, [name] is not available during that time. Would you like to try a different time?"
+                   - If available: {'चांगलं! [Name] [time period] मध्ये उपलब्ध आहेत. तुम्हाला अपॉइंटमेंट बुक करायचे आहे का? तुमची पसंतीची तारीख आणि वेळ सांगा.' if current_lang == 'mr' else 'Great! [Name] is available [time period]. Would you like to schedule an appointment? Just let me know your preferred date and time.'}
+                   - If not available: {'माफ करा, [name] त्या वेळी उपलब्ध नाहीत. तुम्हाला वेगळा वेळ पाहायचा आहे का?' if current_lang == 'mr' else 'I am sorry, [name] is not available during that time. Would you like to try a different time?'}
                    - NEVER mention availability_id or any other IDs
                    - Make the response conversational and friendly
                    - Guide the user to provide date and time
 
                 3. For create_appointment:
-                   - If successful: "Perfect! I've scheduled your appointment with [name] for [date] at [time] for [duration] minutes to discuss [reason]. Is there anything else you need help with?"
-                   - If failed: "I'm sorry, I couldn't schedule the appointment. Would you like to try again?"
+                   - If successful: {'छान! मी तुमचा [name] यांच्याशी [date] रोजी [time] वाजता [duration] मिनिटांचा अपॉइंटमेंट बुक केला आहे. [reason] बाबत चर्चा करण्यासाठी. तुम्हाला आणखी काही मदत हवी आहे का?' if current_lang == 'mr' else 'Perfect! I have scheduled your appointment with [name] for [date] at [time] for [duration] minutes to discuss [reason]. Is there anything else you need help with?'}
+                   - If failed: {'माफ करा, मी अपॉइंटमेंट बुक करू शकलो नाही. तुम्हाला पुन्हा प्रयत्न करायचे आहे का?' if current_lang == 'mr' else 'I am sorry, I could not schedule the appointment. Would you like to try again?'}
                    - NEVER mention appointment_id or any other IDs
                    - Make the response conversational and friendly
                    - Offer additional help after successful booking
 
                 4. For create_task:
-                   - If successful: "I've created a task for [name] regarding [task_details]. The task is set to [priority] priority. Is there anything else you need help with?"
-                   - If failed: "I'm sorry, I couldn't create the task. Would you like to try again?"
+                   - If successful: {'मी [name] यांच्यासाठी [task_details] बाबत [priority] प्राधान्याचा टास्क बनवला आहे. तुम्हाला आणखी काही मदत हवी आहे का?' if current_lang == 'mr' else 'I have created a task for [name] regarding [task_details]. The task is set to [priority] priority. Is there anything else you need help with?'}
+                   - If failed: {'माफ करा, मी टास्क बनवू शकलो नाही. तुम्हाला पुन्हा प्रयत्न करायचे आहे का?' if current_lang == 'mr' else 'I am sorry, I could not create the task. Would you like to try again?'}
                    - NEVER mention task_id or any other IDs
                    - Make the response conversational and friendly
                    - Offer additional help after successful task creation
@@ -919,6 +950,8 @@ async def search(
                    - Guide the user to the next step
 
                 Current function response: {json.dumps(function_response, indent=2)}
+
+                IMPORTANT: Your response MUST be a valid JSON string that can be parsed by json.loads(). Do not include any markdown formatting or additional text.
                 """
                 
                 response = GeminiService.call_api(
@@ -927,20 +960,96 @@ async def search(
                     conversation_history[user_id]
                 )
                 
-                if response and "candidates" in response:
-                    candidate = response["candidates"][0]
-                    content = candidate.get("content", {})
-                    part = content.get("parts", [{}])[0]
-                    
-                    if "text" in part:
-                        try:
-                            ai_response = json.loads(clean_json_response(part["text"]))
-                        except json.JSONDecodeError:
-                            ai_response = default_response
-                    else:
-                        ai_response = default_response
-                else:
+                print("\n=== Debug: API Response ===")
+                print(json.dumps(response, indent=2))
+                print("=========================\n")
+                
+                if not response:
+                    print("\n=== Debug: Empty Response ===")
                     ai_response = default_response
+                elif "candidates" not in response or not response["candidates"]:
+                    print("\n=== Debug: No Candidates ===")
+                    ai_response = default_response
+                else:
+                    candidate = response["candidates"][0]
+                    print("\n=== Debug: First Candidate ===")
+                    print(json.dumps(candidate, indent=2))
+                    print("=========================\n")
+                    
+                    content = candidate.get("content", {})
+                    print("\n=== Debug: Content ===")
+                    print(json.dumps(content, indent=2))
+                    print("=====================\n")
+                    
+                    parts = content.get("parts", [])
+                    if not parts:
+                        print("\n=== Debug: No Parts ===")
+                        ai_response = default_response
+                    else:
+                        part = parts[0]
+                        print("\n=== Debug: Part ===")
+                        print(json.dumps(part, indent=2))
+                        print("==================\n")
+                        
+                        if "text" not in part:
+                            print("\n=== Debug: No Text in Part ===")
+                            ai_response = default_response
+                        else:
+                            try:
+                                # Get raw text and ensure it's a string
+                                raw_text = str(part.get("text", "{}"))
+                                print("\n=== Debug: Raw Text ===")
+                                print(f"Type: {type(raw_text)}")
+                                print(f"Length: {len(raw_text)}")
+                                print(f"Content: {repr(raw_text)}")
+                                print("=====================\n")
+                                
+                                # Clean the text
+                                cleaned_text = clean_json_response(raw_text)
+                                print("\n=== Debug: Cleaned Text ===")
+                                print(f"Type: {type(cleaned_text)}")
+                                print(f"Length: {len(cleaned_text)}")
+                                print(f"Content: {repr(cleaned_text)}")
+                                print("=====================\n")
+                                
+                                # Ensure we have a valid JSON string
+                                if not cleaned_text or cleaned_text.isspace():
+                                    print("\n=== Debug: Empty Cleaned Text ===")
+                                    ai_response = default_response
+                                else:
+                                    try:
+                                        # Try to parse as JSON
+                                        ai_response = json.loads(cleaned_text)
+                                        
+                                        # Validate response structure
+                                        if not isinstance(ai_response, dict):
+                                            print("\n=== Debug: Response Not Dict ===")
+                                            ai_response = default_response
+                                        elif "response" not in ai_response:
+                                            print("\n=== Debug: No Response Key ===")
+                                            ai_response = default_response
+                                        elif not isinstance(ai_response["response"], dict):
+                                            print("\n=== Debug: Response Value Not Dict ===")
+                                            ai_response = default_response
+                                        elif "message" not in ai_response["response"]:
+                                            print("\n=== Debug: No Message Key ===")
+                                            ai_response = default_response
+                                    except json.JSONDecodeError as e:
+                                        print(f"\n=== Debug: JSON Parse Error ===")
+                                        print(f"Error: {str(e)}")
+                                        print(f"Error Type: {type(e)}")
+                                        print(f"Error Args: {e.args}")
+                                        print("Raw text:", repr(raw_text))
+                                        print("Cleaned text:", repr(cleaned_text))
+                                        print("=====================\n")
+                                        ai_response = default_response
+                            except Exception as e:
+                                print(f"\n=== Debug: Error Processing Response ===")
+                                print(f"Error: {str(e)}")
+                                print(f"Error Type: {type(e)}")
+                                print(f"Error Args: {e.args}")
+                                print("=====================\n")
+                                ai_response = default_response
             elif "response" in parsed_response:
                 ai_response = parsed_response
             else:
@@ -994,5 +1103,6 @@ async def search(
     return ai_response
 
 if __name__ == "__main__":
+    
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
